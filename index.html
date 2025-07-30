@@ -2,46 +2,49 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>V-DAO Notary (Final Test)</title>
+    <title>V-DAO Notary (Final)</title>
     <script src="https://unpkg.com/@vechain/connex@2.1.0/dist/connex.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #121212; color: #e0e0e0; }
+        .container { max-width: 700px; margin: 40px auto; background: #1e1e1e; padding: 30px; border-radius: 15px; }
+        h1 { color: #4facfe; }
+        button { width: 100%; padding: 15px; font-size: 18px; color: white; background: #2dce89; border: none; border-radius: 10px; cursor: pointer; margin-top: 20px; }
+        #result { margin-top: 20px; padding: 15px; background: #2a2a2a; border-radius: 10px; font-family: monospace; word-break: break-all; }
+    </style>
 </head>
 <body>
-    <h1>V-DAO Notary</h1>
-    <p>This is the final test. Please open your browser's developer console to see error messages.</p>
-    <input type="file" id="fileInput">
-    <button id="notarizeBtn">Notarize</button>
-    <div id="result"></div>
+    <div class="container">
+        <h1>V-DAO Notary</h1>
+        <input type="file" id="fileInput">
+        <button id="notarizeBtn">Notarize with My Wallet</button>
+        <div id="result"></div>
+    </div>
 
     <script>
         document.getElementById('notarizeBtn').addEventListener('click', async () => {
-            const resultDiv = document.getElementById('result');
             const file = document.getElementById('fileInput').files[0];
+            const resultDiv = document.getElementById('result');
 
-            if (!file) {
-                resultDiv.innerText = 'Error: Please select a file.';
-                return;
-            }
-
-            if (!window.connex) {
-                resultDiv.innerText = 'Error: VeChain wallet not found.';
-                return;
-            }
+            if (!file) { resultDiv.innerText = 'Error: Select a file.'; return; }
+            if (!window.connex) { resultDiv.innerText = 'Error: VeChain wallet not found.'; return; }
 
             resultDiv.innerText = 'Working...';
             
             try {
                 const fileBuffer = await file.arrayBuffer();
                 const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
-                const hash = '0x' + Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+                const hash = '0x' + Array.from(new UintArray(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
                 const { txid } = await connex.vendor.sign('tx', [{ to: null, value: '0x0', data: hash }]).request();
 
-                resultDiv.innerHTML = `Success! TXID: ${txid}`;
+                const explorerUrl = `https://explore-testnet.vechain.org/transactions/${txid}`;
+                resultDiv.innerHTML = `✅ Success! TXID: <a href="${explorerUrl}" target="_blank" style="color: #4facfe;">${txid}</a>`;
+
             } catch (error) {
-                console.error("CRITICAL ERROR:", error);
-                resultDiv.innerText = `Error: ${error.message}. Check console for details.`;
+                resultDiv.innerText = `Error: ${error.message}`;
             }
         });
     </script>
 </body>
 </html>
+
