@@ -1,45 +1,67 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>V-DAO Notary (Final)</title>
-    <script src="https://unpkg.com/@vechain/connex@2.1.0/dist/connex.min.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background: #121212; color: #e0e0e0; }
         .container { max-width: 700px; margin: 40px auto; background: #1e1e1e; padding: 30px; border-radius: 15px; }
         h1 { color: #4facfe; }
+        #walletStatus { margin-top: 15px; font-weight: bold; height: 20px; }
         button { width: 100%; padding: 15px; font-size: 18px; color: white; background: #2dce89; border: none; border-radius: 10px; cursor: pointer; margin-top: 20px; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
         #result { margin-top: 20px; padding: 15px; background: #2a2a2a; border-radius: 10px; font-family: monospace; word-break: break-all; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>V-DAO Notary</h1>
+        <div id="walletStatus" style="color: #ffc107;">Waiting for wallet...</div>
+        
         <input type="file" id="fileInput">
-        <button id="notarizeBtn">1. Connect Wallet & 2. Notarize</button>
+        <button id="notarizeBtn" disabled>Notarize</button>
         <div id="result"></div>
     </div>
 
     <script>
-        document.getElementById('notarizeBtn').addEventListener('click', async () => {
-            const file = document.getElementById('fileInput').files[0];
-            const resultDiv = document.getElementById('result');
+        const notarizeBtn = document.getElementById('notarizeBtn');
+        const fileInput = document.getElementById('fileInput');
+        const walletStatusDiv = document.getElementById('walletStatus');
+        const resultDiv = document.getElementById('result');
+        let connex; // We will store the wallet connection here
 
-            if (!file) { resultDiv.innerText = 'Error: Select a file.'; return; }
-            if (!window.connex) { resultDiv.innerText = 'Error: VeChain wallet not found.'; return; }
+        // --- THE FIX IS HERE: This is a "patient" listener ---
+        // It waits for the 'connexready' signal from the VeWorld wallet.
+        document.addEventListener('connexready', (event) => {
+            connex = event.connex;
+            walletStatusDiv.innerText = '✅ Wallet Found!';
+            walletStatusDiv.style.color = '#28a745';
+            notarizeBtn.disabled = false; // Enable the button now that the wallet is ready
+            console.log("Connex is ready!");
+        });
+
+        notarizeBtn.addEventListener('click', async () => {
+            const file = fileInput.files[0];
+
+            if (!file) {
+                resultDiv.innerText = 'Error: Select a file.';
+                return;
+            }
+            if (!connex) {
+                // This should not happen if the listener worked, but it's a good safety check.
+                resultDiv.innerText = 'Error: Wallet connection is not ready. Please refresh the page.';
+                return;
+            }
 
             resultDiv.innerText = 'Working... Please check your wallet.';
             
             try {
-                // HASH
                 const fileBuffer = await file.arrayBuffer();
                 const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
                 const hash = '0x' + Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-                // CONNECT WALLET & REVIEW
                 const { txid } = await connex.vendor.sign('tx', [{ to: null, value: '0x0', data: hash }]).request();
 
-                // SUCCESS
                 const explorerUrl = `https://explore-testnet.vechain.org/transactions/${txid}`;
                 resultDiv.innerHTML = `✅ Success! TXID: <a href="${explorerUrl}" target="_blank" style="color: #4facfe;">${txid}</a>`;
 
@@ -50,4 +72,3 @@
     </script>
 </body>
 </html>
-
