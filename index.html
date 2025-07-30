@@ -2,67 +2,46 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>V-DAO Notary (Final)</title>
+    <title>V-DAO Notary (Final Test)</title>
     <script src="https://unpkg.com/@vechain/connex@2.1.0/dist/connex.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <style>
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background: #121212;
-            color: #e0e0e0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 700px;
-            margin: 40px auto;
-            background: #1e1e1e;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            border: 1px solid #333;
-        }
-        h1 {
-            color: #4facfe;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .upload-area {
-            border: 2px dashed #444;
-            border-radius: 10px;
-            padding: 40px;
-            text-align: center;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        .upload-area:hover {
-            background-color: #2a2a2a;
-        }
-        button {
-            width: 100%;
-            padding: 15px;
-            font-size: 18px;
-            font-weight: bold;
-            color: white;
-            background: linear-gradient(to right, #2dce89, #1ca064);
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            margin-top: 20px;
-            transition: transform 0.2s;
-        }
-        button:hover {
-            transform: translateY(-2px);
-        }
-        #result {
-            margin-top: 20px;
-            padding: 15px;
-            background: #2a2a2a;
-            border-radius: 10px;
-            font-family: monospace;
-            word-break: break-all;
-            display: none; /* Hidden by default */
-        }
-    </style>
 </head>
 <body>
-    <div class="container
+    <h1>V-DAO Notary</h1>
+    <p>This is the final test. Please open your browser's developer console to see error messages.</p>
+    <input type="file" id="fileInput">
+    <button id="notarizeBtn">Notarize</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('notarizeBtn').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('result');
+            const file = document.getElementById('fileInput').files[0];
+
+            if (!file) {
+                resultDiv.innerText = 'Error: Please select a file.';
+                return;
+            }
+
+            if (!window.connex) {
+                resultDiv.innerText = 'Error: VeChain wallet not found.';
+                return;
+            }
+
+            resultDiv.innerText = 'Working...';
+            
+            try {
+                const fileBuffer = await file.arrayBuffer();
+                const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
+                const hash = '0x' + Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+                const { txid } = await connex.vendor.sign('tx', [{ to: null, value: '0x0', data: hash }]).request();
+
+                resultDiv.innerHTML = `Success! TXID: ${txid}`;
+            } catch (error) {
+                console.error("CRITICAL ERROR:", error);
+                resultDiv.innerText = `Error: ${error.message}. Check console for details.`;
+            }
+        });
+    </script>
+</body>
+</html>
