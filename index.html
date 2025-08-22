@@ -2,68 +2,65 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>V-DAO Notary (Final Version)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trust Seal - Secure Notarization</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; text-align: center; padding: 20px; background: #111; color: #eee; }
-        .container { max-width: 600px; margin: 40px auto; background: #222; padding: 30px; border-radius: 10px; }
-        h1 { color: #58a6ff; }
-        button { width: 100%; padding: 15px; font-size: 18px; color: white; background: #238636; border: none; border-radius: 8px; cursor: pointer; margin-top: 20px; }
-        #result { margin-top: 20px; padding: 15px; background: #333; border-radius: 8px; font-family: monospace; word-break: break-all; min-height: 50px; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { background: white; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); padding: 40px; max-width: 600px; width: 100%; }
+        h1 { color: #333; margin-bottom: 30px; text-align: center; }
+        .auth-section { background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+        .auth-section input { width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px; }
+        .auth-buttons { display: flex; gap: 10px; }
+        .user-status { text-align: center; margin-bottom: 15px; font-weight: bold; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #4a5568; font-weight: 600; }
+        input[type="file"] { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; }
+        button { width: 100%; padding: 15px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; }
+        button:hover { background: #5a67d8; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #uploadSection { display: none; } /* Hidden by default */
+        #status-message { margin-top: 20px; text-align: center; }
+        .success-message { color: #10b981; background: #d1fae5; padding: 15px; border-radius: 8px; font-weight: 600; }
+        .error-message { color: #ef4444; background: #fee2e2; padding: 15px; border-radius: 8px; font-weight: 600; }
+        .document-item { background: #f8f9fa; border-radius: 10px; padding: 20px; margin-top: 20px; }
+        .document-item h3 { margin-bottom: 15px; }
+        .document-meta { display: grid; gap: 10px; }
+        .document-label { font-weight: 600; color: #666; }
+        .document-meta span { word-break: break-all; }
+        .document-meta a { color: #667eea; text-decoration: none; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>V-DAO Notary</h1>
-        <p>This is the final, working version.</p>
-        <hr style="border-color: #444; margin: 20px 0;">
-        
-        <input type="file" id="fileInput">
-        <button id="notarizeBtn">Connect Wallet & Notarize</button>
-        <div id="result"></div>
+        <h1>🔏 Trust Seal Notarization</h1>
+
+        <div class="auth-section">
+            <div id="userStatus" class="user-status">You are not signed in.</div>
+            <div id="auth-form">
+                <input type="email" id="email" placeholder="Email" required>
+                <input type="password" id="password" placeholder="Password" required>
+                <div class="auth-buttons">
+                    <button id="signUpBtn">Sign Up / Login</button>
+                    <button id="signOutBtn" style="display: none;">Sign Out</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="uploadSection">
+            <form id="uploadForm">
+                <div class="form-group">
+                    <label for="document">Choose Document to Notarize</label>
+                    <input type="file" id="document" name="document" required>
+                </div>
+                <button type="submit" id="submitBtn">🔐 Notarize Document</button>
+            </form>
+            <div id="status-message"></div>
+            <div id="result"></div>
+        </div>
     </div>
-
-    <script>
-        document.getElementById('notarizeBtn').addEventListener('click', async () => {
-            const resultDiv = document.getElementById('result');
-            const file = document.getElementById('fileInput').files[0];
-
-            // 1. Check for a file
-            if (!file) {
-                resultDiv.innerText = 'Error: Please select a file first.';
-                return;
-            }
-
-            // 2. Check for the wallet (the simplest way)
-            if (typeof window.connex === 'undefined') {
-                resultDiv.innerText = 'Error: VeChain wallet not found. Please make sure the VeWorld extension is installed and unlocked.';
-                return;
-            }
-
-            resultDiv.innerText = 'Working... Please check your wallet to approve.';
-            
-            try {
-                // 3. Create the hash
-                const fileBuffer = await file.arrayBuffer();
-                const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
-                const hash = '0x' + Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-
-                // 4. Ask the wallet to sign the transaction
-                const { txid } = await window.connex.vendor.sign('tx', [{
-                    to: null,
-                    value: '0x0',
-                    data: hash,
-                    comment: 'V-DAO Document Notarization'
-                }]).request();
-
-                // 5. Success
-                const explorerUrl = `https://explore-testnet.vechain.org/transactions/${txid}`;
-                resultDiv.innerHTML = `✅ Success! TXID: <a href="${explorerUrl}" target="_blank" style="color: #58a6ff;">${txid}</a>`;
-
-            } catch (error) {
-                // This will catch if the user clicks "Reject" in their wallet
-                resultDiv.innerText = `Error: ${error.message}`;
-            }
-        });
-    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="script.js"></script>
 </body>
 </html>
