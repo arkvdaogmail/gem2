@@ -1,66 +1,167 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trust Seal - Secure Notarization</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .container { background: white; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); padding: 40px; max-width: 600px; width: 100%; }
-        h1 { color: #333; margin-bottom: 30px; text-align: center; }
-        .auth-section { background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
-        .auth-section input { width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px; }
-        .auth-buttons { display: flex; gap: 10px; }
-        .user-status { text-align: center; margin-bottom: 15px; font-weight: bold; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; color: #4a5568; font-weight: 600; }
-        input[type="file"] { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; }
-        button { width: 100%; padding: 15px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; }
-        button:hover { background: #5a67d8; }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        #uploadSection { display: none; } /* Hidden by default */
-        #status-message { margin-top: 20px; text-align: center; }
-        .success-message { color: #10b981; background: #d1fae5; padding: 15px; border-radius: 8px; font-weight: 600; }
-        .error-message { color: #ef4444; background: #fee2e2; padding: 15px; border-radius: 8px; font-weight: 600; }
-        .document-item { background: #f8f9fa; border-radius: 10px; padding: 20px; margin-top: 20px; }
-        .document-item h3 { margin-bottom: 15px; }
-        .document-meta { display: grid; gap: 10px; }
-        .document-label { font-weight: 600; color: #666; }
-        .document-meta span { word-break: break-all; }
-        .document-meta a { color: #667eea; text-decoration: none; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🔏 Trust Seal Notarization</h1>
+require('dotenv').config();
+const express = require('express');
+const multer = require('multer');
+const crypto = require('crypto');
+const { createClient } = require('@supabase/supabase-js');
+const {
+  ThorClient,
+  Address,
+  Hex,
+  clauseBuilder,
+  TransactionHandler,
+  signerUtils,
+  VeChainProvider,
+  ProviderInternalBaseWallet
+} = require('@vechain/sdk-network');
 
-        <div class="auth-section">
-            <div id="userStatus" class="user-status">You are not signed in.</div>
-            <div id="auth-form">
-                <input type="email" id="email" placeholder="Email" required>
-                <input type="password" id="password" placeholder="Password" required>
-                <div class="auth-buttons">
-                    <button id="signUpBtn">Sign Up / Login</button>
-                    <button id="signOutBtn" style="display: none;">Sign Out</button>
-                </div>
-            </div>
-        </div>
+const app = express();
+const upload = multer({ storage: multer.memoryStorage() });
+const port = process.env.PORT || 5002;
 
-        <div id="uploadSection">
-            <form id="uploadForm">
-                <div class="form-group">
-                    <label for="document">Choose Document to Notarize</label>
-                    <input type="file" id="document" name="document" required>
-                </div>
-                <button type="submit" id="submitBtn">🔐 Notarize Document</button>
-            </form>
-            <div id="status-message"></div>
-            <div id="result"></div>
-        </div>
-    </div>
+// Initialize Supabase
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
+
+// Initialize VeChain
+const thor = ThorClient.fromUrl(process.env.VECHAIN_NODE_URL);
+
+// Get private key
+function getPrivateKey() {
+  return process.env.PRIVATE_KEY;
+}
+
+// Notarization endpoint
+app.post('/notarize', upload.single('document'), async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    const file = req.file;
     
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js"></script>
-</body>
-</html>
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Generate document hash
+    const hash = crypto.createHash('sha256')
+      .update(file.buffer)
+      .digest('hex');
+    
+    // Store in Supabase
+    const { data, error } = await supabase
+      .from('notary_records')
+      .insert([{
+        document_name: name,
+        document_hash: hash,
+        description: description,
+        status: 'processing'
+      }]);
+    
+    if (error) throw error;
+
+    // Send to VeChain
+    const txId = await sendToBlockchain(hash);
+    
+    // Update Supabase record
+    await supabase
+      .from('notary_records')
+      .update({
+        blockchain_tx: txId,
+        status: 'confirmed'
+      })
+      .eq('id', data[0].id);
+
+    res.json({
+      success: true,
+      documentHash: `0x${hash}`,
+      txId,
+      supabaseId: data[0].id
+    });
+    
+  } catch (error) {
+    console.error('Notarization error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Blockchain function
+async function sendToBlockchain(hash) {
+  const privateKey = getPrivateKey();
+  const privateKeyBytes = Hex.of(privateKey).bytes;
+  const senderAddress = Address.ofPrivateKey(privateKeyBytes).toString();
+
+  const clauses = [
+    clauseBuilder.functionInteraction(
+      process.env.NOTARY_CONTRACT_ADDRESS,
+      'storeHash',
+      [`0x${hash}`]
+    )
+  ];
+
+  const gasResult = await thor.gas.estimateGas(clauses, senderAddress);
+  const txBody = await thor.transactions.buildTransactionBody(
+    clauses,
+    gasResult.totalGas,
+    { isDelegated: true }
+  );
+
+  const baseWallet = new ProviderInternalBaseWallet(
+    [{ privateKey, address: senderAddress }]
+  );
+
+  const provider = new VeChainProvider(thor, baseWallet, true);
+  const signer = await provider.getSigner(senderAddress);
+  const txInput = signerUtils.transactionBodyToTransactionRequestInput(txBody, senderAddress);
+  
+  const rawDelegateSigned = await signer.signTransaction(txInput);
+  const delegatedSigned = TransactionHandler.decode(
+    Buffer.from(rawDelegateSigned.slice(2), 'hex'),
+    true
+  );
+
+  const result = await thor.transactions.sendTransaction(delegatedSigned);
+  return result.id;
+}
+
+// Verification endpoint
+app.get('/verify/:hash', async (req, res) => {
+  try {
+    const { hash } = req.params;
+    
+    // Check Supabase
+    const { data, error } = await supabase
+      .from('notary_records')
+      .select()
+      .eq('document_hash', hash.replace('0x', ''))
+      .single();
+    
+    if (error || !data) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    // Check blockchain
+    const txInfo = await thor.transactions.getTransaction(data.blockchain_tx);
+    
+    res.json({
+      exists: true,
+      status: data.status,
+      timestamp: data.created_at,
+      blockchain: {
+        txId: data.blockchain_tx,
+        blockRef: txInfo?.blockRef,
+        confirmed: txInfo?.blockNumber !== undefined
+      },
+      document: {
+        name: data.document_name,
+        description: data.description
+      }
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Notary service running on port ${port}`);
+});
