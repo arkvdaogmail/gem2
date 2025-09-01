@@ -118,11 +118,11 @@ app.post('/api/stamp', async (req, res) => {
         logger.info('📝 Initiating LIVE Testnet Stamp', `Document Hash: ${documentHash}`);
 
         // Create transaction clause for REAL contract stamping
-        const clause = Clause.callFunction(
-            Address.of(VECHAIN_CONTRACT),
-            ABI.Function.fromSignature('stampDocument(bytes32)'), // REAL CONTRACT METHOD
-            [documentHash]
-        );
+const clause = Clause.callFunction(
+    Address.of(VECHAIN_CONTRACT),
+    '0x' + ABI.encodeFunctionSignature('stampDocument(bytes32)'), // CORRECT FOR v2.0.4
+    [documentHash]
+);
 
         // Get current blockchain state
         const bestBlockRef = await thorClient.blocks.getBestBlockCompressed();
