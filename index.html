@@ -1,167 +1,52 @@
-require('dotenv').config();
-const express = require('express');
-const multer = require('multer');
-const crypto = require('crypto');
-const { createClient } = require('@supabase/supabase-js');
-const {
-  ThorClient,
-  Address,
-  Hex,
-  clauseBuilder,
-  TransactionHandler,
-  signerUtils,
-  VeChainProvider,
-  ProviderInternalBaseWallet
-} = require('@vechain/sdk-network');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trust-Seal Notary Service</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Trust-Seal Notarization</h1>
+        
+        <div class="card">
+            <h2>Notarize Document</h2>
+            <div class="form-group">
+                <label>Document Name</label>
+                <input type="text" id="documentName" placeholder="e.g., Business Contract">
+            </div>
+            <div class="form-group">
+                <label>Upload Document</label>
+                <div class="upload-area" id="uploadArea">
+                    <i class="upload-icon">📁</i>
+                    <p>Click to upload file</p>
+                </div>
+                <input type="file" id="fileInput" hidden>
+                <div id="fileInfo"></div>
+            </div>
+            <button id="notarizeBtn" class="btn">Notarize on Blockchain</button>
+        </div>
 
-const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
-const port = process.env.PORT || 5002;
+        <div class="card">
+            <h2>Verification Status</h2>
+            <div id="statusPanel">
+                <div class="status-item">
+                    <label>Document Hash:</label>
+                    <span id="documentHash">-</span>
+                </div>
+                <div class="status-item">
+                    <label>Transaction ID:</label>
+                    <span id="txId">-</span>
+                </div>
+                <div class="status-item">
+                    <label>Status:</label>
+                    <span id="statusText">Ready</span>
+                </div>
+            </div>
+        </div>
+    </div>
 
-// Initialize Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
-
-// Initialize VeChain
-const thor = ThorClient.fromUrl(process.env.VECHAIN_NODE_URL);
-
-// Get private key
-function getPrivateKey() {
-  return process.env.PRIVATE_KEY;
-}
-
-// Notarization endpoint
-app.post('/notarize', upload.single('document'), async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    const file = req.file;
-    
-    if (!file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    // Generate document hash
-    const hash = crypto.createHash('sha256')
-      .update(file.buffer)
-      .digest('hex');
-    
-    // Store in Supabase
-    const { data, error } = await supabase
-      .from('notary_records')
-      .insert([{
-        document_name: name,
-        document_hash: hash,
-        description: description,
-        status: 'processing'
-      }]);
-    
-    if (error) throw error;
-
-    // Send to VeChain
-    const txId = await sendToBlockchain(hash);
-    
-    // Update Supabase record
-    await supabase
-      .from('notary_records')
-      .update({
-        blockchain_tx: txId,
-        status: 'confirmed'
-      })
-      .eq('id', data[0].id);
-
-    res.json({
-      success: true,
-      documentHash: `0x${hash}`,
-      txId,
-      supabaseId: data[0].id
-    });
-    
-  } catch (error) {
-    console.error('Notarization error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Blockchain function
-async function sendToBlockchain(hash) {
-  const privateKey = getPrivateKey();
-  const privateKeyBytes = Hex.of(privateKey).bytes;
-  const senderAddress = Address.ofPrivateKey(privateKeyBytes).toString();
-
-  const clauses = [
-    clauseBuilder.functionInteraction(
-      process.env.NOTARY_CONTRACT_ADDRESS,
-      'storeHash',
-      [`0x${hash}`]
-    )
-  ];
-
-  const gasResult = await thor.gas.estimateGas(clauses, senderAddress);
-  const txBody = await thor.transactions.buildTransactionBody(
-    clauses,
-    gasResult.totalGas,
-    { isDelegated: true }
-  );
-
-  const baseWallet = new ProviderInternalBaseWallet(
-    [{ privateKey, address: senderAddress }]
-  );
-
-  const provider = new VeChainProvider(thor, baseWallet, true);
-  const signer = await provider.getSigner(senderAddress);
-  const txInput = signerUtils.transactionBodyToTransactionRequestInput(txBody, senderAddress);
-  
-  const rawDelegateSigned = await signer.signTransaction(txInput);
-  const delegatedSigned = TransactionHandler.decode(
-    Buffer.from(rawDelegateSigned.slice(2), 'hex'),
-    true
-  );
-
-  const result = await thor.transactions.sendTransaction(delegatedSigned);
-  return result.id;
-}
-
-// Verification endpoint
-app.get('/verify/:hash', async (req, res) => {
-  try {
-    const { hash } = req.params;
-    
-    // Check Supabase
-    const { data, error } = await supabase
-      .from('notary_records')
-      .select()
-      .eq('document_hash', hash.replace('0x', ''))
-      .single();
-    
-    if (error || !data) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-    
-    // Check blockchain
-    const txInfo = await thor.transactions.getTransaction(data.blockchain_tx);
-    
-    res.json({
-      exists: true,
-      status: data.status,
-      timestamp: data.created_at,
-      blockchain: {
-        txId: data.blockchain_tx,
-        blockRef: txInfo?.blockRef,
-        confirmed: txInfo?.blockNumber !== undefined
-      },
-      document: {
-        name: data.document_name,
-        description: data.description
-      }
-    });
-    
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.listen(port, () => {
-  console.log(`Notary service running on port ${port}`);
-});
+    <script src="app.js"></script>
+</body>
+</html>
